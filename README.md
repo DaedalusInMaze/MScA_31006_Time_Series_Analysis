@@ -1,4 +1,4 @@
-# MScA_31006_Time_Series_Anlysis
+# MScA_31006_Time_Series_Analysis
 
 ### UChicago MScA Time Series Analysis Course.
 
