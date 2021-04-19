@@ -1,0 +1,190 @@
+---
+title: "HW3_TS"
+author: "Curtis Zhuang"
+date: "2021/4/19"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r, echo = FALSE, warning = FALSE, include = FALSE}
+library(tseries)
+library(forecast)
+library(fpp)
+library(TSA)
+library(dplyr)
+```
+
+<br>
+
+#### **Question 1:**
+#### Load the usgdp.rda dataset and split it into a training dataset (1960 - 2012) and a test dataset (2013 - 2017)
+```{r}
+load('usgdp.rda')
+
+train <- subset(usgdp, usgdp$Year < 2013)
+
+test <- subset(usgdp, usgdp $ Year > 2012)
+
+head(train)
+```
+
+<br>
+
+
+#### **Question 2:**
+#### Plot the training dataset. Is the Box-Cox transformation necessary for this data?
+
+```{r}
+# convert to time series
+train_gdp <- ts(train$GDP, start= 1960, frequency = 1)
+test_gdp <- ts(test$GDP, start= 2013, frequency = 1)
+
+autoplot(train_gdp)
+
+# find the best lambda for transformation
+lambda <- BoxCox.lambda(train_gdp)
+lambda
+
+train_gdp %>% BoxCox(lambda = lambda) %>% autoplot()
+
+# do transformation based on the best lambda 
+trans_gdp <- BoxCox(train_gdp, lambda = lambda)
+```
+**We want to do a transformation with lambda = 0.23 because the original graph as we see is a little concave and we want to make it straight.**
+
+
+<br>
+
+
+#### **Question 3:**
+#### Plot the 1st and 2nd order difference of the data. Apply KPSS Test for Stationarity to determine which difference order results in a stationary dataset.
+
+```{r}
+## 1st difference
+plot(diff(trans_gdp))
+
+## 2nd difference
+plot(diff(diff(trans_gdp)))
+
+## kpss for 1st and 2nd order
+kpss.test(diff(trans_gdp), null = c("Level", "Trend"), lshort = TRUE)
+kpss.test(diff(diff(trans_gdp), null = c("Level", "Trend"), lshort = TRUE))
+```
+
+**We can choose order 1 as p = 0.1 when using first order. And as the null hypothesis is stationary so we do not want to reject null hypothesis.**
+
+<br>
+
+
+#### **Question 4:**
+#### Fit a suitable ARIMA model to the training dataset using the auto.arima() function. Remember to transform the data first if necessary. Report the resulting 𝑝,𝑑,𝑞 and the coefficients values.
+
+```{r}
+fit <- auto.arima(train_gdp, trace = TRUE, lambda = 'auto')
+fit
+
+Arima(train_gdp, order = c(1,1,0), lambda = lambda, include.drift = T)
+```
+**In this case AR order p = 1, transformation coefficient d = 1 and moving average q = 0.  AR coefficient is 0.4728 with a drift of 50.3366.**
+
+
+<br>
+
+
+#### **Question 5:**
+#### Compute the sample Extended ACF (EACF) and use the Arima() function to try some other plausible models by experimenting with the orders chosen. Limit your models to 𝑞,𝑝 ≤2 and 𝑑≤2. Use the model summary() function to compare the Corrected Akaike information criterion (i.e., AICc) values (Note: Smaller values indicated better models).
+
+```{r}
+eacf(trans_gdp)
+
+# p = 1, d = 1, q = 1
+a111 <- Arima(train_gdp, order = c(1,1,1), lambda = lambda, include.drift = T)
+summary(a111)
+
+# p = 1, d = 1, q = 2
+a112 <- Arima(train_gdp, order = c(1,1,2), lambda = lambda, include.drift = T)
+summary(a112)
+
+# p = 2, d = 1, q = 1
+a211 <- Arima(train_gdp, order = c(2,1,1), lambda = lambda, include.drift = T)
+summary(a211)
+
+# p = 1, d = 2, q = 1
+a121 <- Arima(train_gdp, order = c(1,2,1), lambda = lambda, seasonal = F)
+summary(a121)
+
+# p = 1, d = 2, q = 2
+a122 <- Arima(train_gdp, order = c(1,2,2), lambda = lambda)
+summary(a122)
+
+# p = 2, d = 2, q = 1
+a221 <- Arima(train_gdp, order = c(2,2,1), lambda = lambda)
+summary(a221)
+
+# p = 2, d = 2, q = 2
+a222 <- Arima(train_gdp, order = c(2,2,2), lambda = lambda)
+summary(a222)
+```
+**The best model from EACF is q = 1, d = 2, q = 1 and the AICc is 442.5 which is the smallest among all models.**
+
+
+<br>
+
+
+#### **Question 6:**
+#### Use the model chosen in Question 4 to forecast and plot the GDP forecasts with 80 and 95 % confidence levels for 2013 - 2017 (Test Period).
+
+```{r}
+# get estimate from time series
+test.fc <- forecast(fit, h = 5, level = c(80, 95))
+test.fc
+
+plot(forecast(fit,h=5),include=100)  
+```
+
+<br>
+
+
+#### **Question 7:**
+#### Compare your forecasts with the actual values using error = actual - estimate and plot the errors. (Note: Use the forecast $mean element for the forecast estimate)
+```{r}
+# plot the error
+error_gdp <- test_gdp - test.fc$mean
+
+error_gdp
+
+plot(error_gdp)
+```
+
+
+<br>
+
+
+#### **Question 8:**
+#### Calculate the sum of squared errors
+```{r}
+SSE <- sum(error_gdp^2)
+```
+**SSE is $7.974*10^{23}$**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
