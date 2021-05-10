@@ -1,0 +1,248 @@
+---
+title: "HW5_TS"
+author: "Curtis Zhuang"
+date: "2021/5/10"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r, echo = FALSE, warning = FALSE, include = FALSE}
+library(tseries)
+library(forecast)
+library(fpp)
+library(TSA)
+```
+
+<br>
+
+#### **Question 1:**
+#### Load and plot the visitors dataset and plot the dataset with and without the Box Cox transformation. Describe the main dataset characteristics.
+```{r}
+load('visitors_monthly.rda')
+
+visitors <- visitors[, -1]
+
+## plot without transformation
+visitors_ts <- ts(visitors$x, start = c(1985, 5), frequency = 12)
+
+plot(visitors_ts)
+tsdisplay(visitors_ts)
+
+```
+
+**We see variance grows over time, so we do need to transform.**
+
+```{r}
+## plot with transformation
+
+### Get lambda
+lambda <- BoxCox.lambda(visitors_ts)
+
+# do transformation based on the best lambda 
+visitors_tran <- BoxCox(visitors_ts, lambda = lambda)
+tsdisplay(visitors_tran)
+```
+
+**For the dataset, we see that it has an overall growing trend and very clear seasonal pattern. From the growing varaince, we see transformation is necessary and we can see from PACF plot there is a cut-off at 1, so it may be autoregression of degree 1.**
+
+
+<br>
+
+
+#### **Question 2:**
+#### Build two models using the entire visitors dataset
+a. Model 1: Let the auto.arima() function determine the best order 𝐴𝑅𝐼𝑀𝐴(𝑝, 𝑑, 𝑞)(𝑃, 𝑄, 𝐷)𝑠 model.
+b. Model 2: Let the ets() function determine the best model for exponential smoothing.
+
+```{r}
+## Model 1
+model_1 <- auto.arima(visitors_ts, lambda = 'auto', seasonal = TRUE, trace = TRUE)
+summary(model_1)
+
+## Model 2
+model_2 <- ets(visitors_tran, model = 'MAM')
+summary(model_2)
+RMSE <- InvBoxCox(0.247621, lambda)
+RMSE
+```
+
+```{r}
+checkresiduals(model_1)
+checkresiduals(model_2)
+```
+
+**Here, we see for SARIMA the best model is arima(0,1,1)(2,1,1)[12] and the AICc is 28.41. For the ETS model, AICc is 683.11. We see that SARIMA performs much better. When we check the residuals, the Arima model has high p value which means there may be not autocorrelation within the original data. ETS model shows opposite result and suggests there are autocorrelation.**
+
+<br>
+
+
+#### **Question 3:**
+#### In this section you will apply the time-series cross validation method to train and test various models. Use the following values when training and testing the models:
+* Set the minimum number of samples required to train the model to 160 (i.e., this is the minimum number of samples in the sliding window and the initial number of samples in the expanding window method.)
+* Set the number the forecast horizon, ℎ, to 1 year (i.e., 12 months.)
+* Recall that the period, 𝑝, is equal to 12 months
+* Use a single observation incrementation in each iteration (i.e., shift the training set forward by 1
+observation.)
+
+<br>
+
+For each iteration, apply the following 4 forecasts:
+
+1) Use the Arima() function to estimate a sARIMA([1,0,1][0,1,2]12 with drift model for:
+* a. Expanding training window and
+* b. Sliding training window
+
+2) Use the Exponential Smoothing function ets() to estimate a MAM (Multiplicative Error, Additive
+trend, multiplicative Season) model for:
+* a. Expanding training window
+* b. Sliding training window
+
+For each test window record the:
+
+1) One-year forecast horizon error
+2) Estimated model AICc value.
+
+For each of the four models above, calculate and plot the
+
+1) Mean Absolute Forecast Error (MAE) vs forecast horizon.
+
+2) Root-square Forecast Error (RMSE) vs forecast horizon.
+
+3) AICc vs iteration number
+
+Discuss your results.
+
+**Cross Validation**
+```{r}
+### Set parameters
+
+k <- 160 # minimum data length for fitting a model
+n <- length(visitors_ts) # Number of data points
+
+p <- 12 ### Period
+H <- 12 # Forecast Horiz
+
+
+
+# Predict with Arima
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+st <- tsp(visitors_ts)[1]+(k-2)/p #  gives the start time in time units,
+
+mae_1 <- matrix(NA,n-k,H)
+mae_2 <- matrix(NA,n-k,H)
+mae_3 <- matrix(NA,n-k,H)
+mae_4 <- matrix(NA,n-k,H)
+
+AICc_1 <- matrix(NA,n-k,H)
+AICc_2 <- matrix(NA,n-k,H)
+AICc_3 <- matrix(NA,n-k,H)
+AICc_4 <- matrix(NA,n-k,H)
+```
+
+
+```{r}
+### CV
+for(i in 1:(n-k)){
+  ### One Month rolling forecasting
+  # Expanding Window 
+  train_1 <- window(visitors_ts, end=st + i/p)  ## Window Length: k+i
+  
+  # Sliding Window - keep the training window of fixed length. 
+  # The training set always consists of k observations.
+  train_2 <- window(visitors_ts, start=st+(i-k+1)/p, end=st+i/p) ## Window Length: k
+  
+  test <- window(visitors_ts, start=st + (i+1)/p, end=st + (i+H)/p) ## Window Length: H
+  
+  if (i<10) {
+    print(i)
+    cat(c("*** CV", i,":","len(Expanding Window):",length(train_1), "len(Sliding Window):",length(train_2), "len(Test):",length(test),'\n'  ))
+    cat(c("*** TRAIN -  Expanding WIndow:",tsp(train_1)[1],'-',tsp(train_1)[2],'\n'))
+    cat(c("*** TRAIN - Sliding WIndow:",tsp(train_2)[1],'-',tsp(train_2)[2],'\n'))
+    cat(c("*** TEST:",tsp(test)[1],'-',tsp(test)[2],'\n'))
+    cat("*************************** \n \n")
+  }
+  
+  
+  fit_1 <- Arima(train_1, order=c(1,0,1), seasonal=list(order=c(0,1,2), period=p),
+                 include.drift=TRUE, lambda='auto', method="ML")
+  fcast_1 <- forecast(fit_1, h=H)
+  
+  
+  fit_2 <- Arima(train_2, order=c(1,0,1), seasonal=list(order=c(0,1,2), period=p),
+                 include.drift=TRUE, lambda='auto', method="ML")
+  fcast_2 <- forecast(fit_2, h=H)
+  
+  fit_3 <- ets(train_1, model = 'MAM')
+  fcast_3 <- forecast(fit_3, h=H)
+  
+  fit_4 <- ets(train_2, model = 'MAM')
+  fcast_4 <- forecast(fit_4, h=H)
+  
+  AICc_1[i, 1:length(test)] <- fit_1$aicc
+  AICc_2[i, 1:length(test)] <- fit_2$aicc
+  AICc_3[i, 1:length(test)] <- fit_3$aicc
+  AICc_4[i, 1:length(test)] <- fit_4$aicc
+  
+  
+  mae_1[i,1:length(test)] <- abs(fcast_1[['mean']]-test)
+  mae_2[i,1:length(test)] <- abs(fcast_2[['mean']]-test)
+  mae_3[i,1:length(test)] <- abs(fcast_3[['mean']]-test)
+  mae_4[i,1:length(test)] <- abs(fcast_4[['mean']]-test)
+  
+}
+```
+<br>
+
+**Plot**
+```{r}
+# plot MAE
+plot(1:12, colMeans(mae_1,na.rm=TRUE), type="l",col=1,xlab="horizon", ylab="MAE",
+     ylim=c(15,40))
+lines(1:12, colMeans(mae_2,na.rm=TRUE), type="l",col=2)
+lines(1:12, colMeans(mae_3,na.rm=TRUE), type="l",col=3)
+lines(1:12, colMeans(mae_4,na.rm=TRUE), type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', 'ETS - Sliding Window'),col=1:4,lty=1)
+
+
+
+# plot rmse
+plot(1:12, sqrt(colMeans(mae_1^2,na.rm=TRUE)), type="l",col=1,xlab="horizon", ylab="RMSE",
+     ylim=c(20,50))
+lines(1:12, sqrt(colMeans(mae_2^2,na.rm=TRUE)), type="l",col=2)
+lines(1:12, sqrt(colMeans(mae_3^2,na.rm=TRUE)), type="l",col=3)
+lines(1:12, sqrt(colMeans(mae_4^2,na.rm=TRUE)), type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', 'ETS - Sliding Window'),col=1:4,lty=1)
+
+
+# plot aicc
+plot(1:80, rowMeans(AICc_1,na.rm=TRUE), type="l",col=1,xlab="iteration", ylab="AICc",
+     ylim=c(-600,3000))
+lines(1:80, rowMeans(AICc_2,na.rm=TRUE), type="l",col=2)
+lines(1:80, rowMeans(AICc_3,na.rm=TRUE), type="l",col=3)
+lines(1:80, rowMeans(AICc_4,na.rm=TRUE), type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', 'ETS - Sliding Window'),col=1:4,lty=1)
+```
+
+**When we look at the AICc plot, we see that the ARIMA models show low AICcs while ETS models show high AICc and while AICc for ETS is growing up with more iterations, it is going down for ARIMA. In this case we prefer ARIMA models.**
+
+**From MAE and RMSE, we did not see to much info except that they are both growing overtime.**
+
+<br>
+
+
+#### **Question 4:**
+#### What are the disadvantages of the above methods? What would be a better approach to estimate the models? Hint: How were the SARIMA and exponential time series models determined in question 3?
+
+**For SARIMA, it is determining the outcomes by finding the most appropriate values for p, d, q and fit the trends and seasonal patterns to it. But as a result of that, it is computationaly expensive as it has to do lots of calculations and plus it is a backward looking model. It may also overfit.**
+
+**For Exponential Smoothing, the main advantage is that it may lag over time and may not capture all the time components well.**
+
+**Some approaches we can consider are using bootstrapping or using Adaptive Response-Rate Exponential Smoothing which may be a better way compared with Exponential alone.**
+
+
