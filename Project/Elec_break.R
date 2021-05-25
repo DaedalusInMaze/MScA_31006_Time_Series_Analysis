@@ -1,0 +1,117 @@
+# library
+library(forecast)
+library(TSA)
+library(tseries)
+library(ggplot2)
+library(vars)
+library(fpp)
+library(corrplot)
+library(RColorBrewer)
+
+
+# load data
+elec <- read.csv('electricity_breakdown.csv')
+
+##### VAR
+
+
+## Time series overview
+elec_ts <- ts(elec, start = c(1973, 1), frequency = 12)
+
+electricity <- elec_ts[, -c(1,3)]
+consump <- elec_ts[, 2]
+temperature <- elec_ts[, 3]
+coal <- elec_ts[, 4]
+petro <- elec_ts[, 5]
+gas <- elec_ts[, 6]
+nucl <- elec_ts[, 7]
+hydro <- elec_ts[, 8]
+biom <- elec_ts[, 9]
+geoth <- elec_ts[, 10]
+solar <- elec_ts[, 11] + 0.001
+wind <- elec_ts[, 12] + 0.001
+
+## plotting
+plot.ts(electricity)
+autoplot(electricity)
+plot(consump, temperature)
+
+
+for(i in 1:10) {
+  print(i)
+  tsdisplay(electricity[,i], main = i)
+}
+
+
+## Transformation needed
+con_lambda <- BoxCox.lambda(consump)
+tran_consump <- BoxCox(consump, con_lambda)
+tsdisplay(tran_consump)
+
+coal_lambda <- BoxCox.lambda(consump)
+tran_coal <- BoxCox(coal, coal_lambda)
+tsdisplay(tran_coal)
+
+pet_lambda <- BoxCox.lambda(petro)
+tran_petro <- BoxCox(petro, pet_lambda)
+
+
+ng_lambda <- BoxCox.lambda(gas)
+tran_gas <- BoxCox(gas, ng_lambda)
+
+
+nuc_lambda <- BoxCox.lambda(nucl)
+tran_nuc <- BoxCox(nucl, nuc_lambda)
+
+
+hy_lambda <- BoxCox.lambda(hydro)
+tran_hyd <- BoxCox(hydro, hy_lambda)
+
+
+biom_lambda <- BoxCox.lambda(biom)
+tran_biom <- BoxCox(biom, biom_lambda)
+
+
+geo_lambda <- BoxCox.lambda(geoth)
+tran_geo <- BoxCox(geoth, geo_lambda)
+
+
+sol_lambda <- BoxCox.lambda(solar)
+tran_solar <- BoxCox(solar, sol_lambda)
+
+
+wind_lambda <- BoxCox.lambda(wind)
+tran_wind <- BoxCox(wind, wind_lambda)
+plot(wind)
+
+
+## study correlation
+corm <- cor(elec_ts[, -1])
+corrplot(corm, type="lower", order="hclust",
+         col=brewer.pal(n=10, name="RdYlBu"))
+
+
+## fit varma
+variables <- cbind(tran_consump,temperature, tran_coal, tran_petro, tran_gas, tran_geo, 
+                   tran_hyd, tran_nuc, tran_solar, tran_biom, tran_wind)
+
+vari_train <- ts(variables[1:552, ], start = c(1973, 1), frequency = 12)
+
+vari_test <-  ts(variables[553:576, ], start = c(2019, 1), frequency = 12)
+
+VARselect(variables, lag.max = 8, type = 'const')$selection
+
+var1 <- VAR(vari_train, p = 7, type = 'both', season = 12)
+serial.test(var1, lags.pt = 7, type = 'PT.asymptotic')
+
+consump_act <- consump[553:576]
+
+var_pred <- forecast(var1, h = 24)
+pred_cons <- InvBoxCox(var_pred$forecast$tran_consump$mean, lambda = con_lambda)
+
+autoplot(var_pred)
+
+rmse(consump_act, pred_cons)
+
+summary(var1)
+## cross-validation
